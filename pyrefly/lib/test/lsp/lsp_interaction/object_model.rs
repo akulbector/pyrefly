@@ -642,12 +642,15 @@ impl TestClient {
                 "textDocument": {
                     "publishDiagnostics": {
                         "relatedInformation": true,
-                        "versionSupport": false,
+                        "versionSupport": true,
                         "tagSupport": {
                             "valueSet": [1, 2],
                         },
                         "codeDescriptionSupport": true,
                         "dataSupport": true,
+                    },
+                    "documentSymbol": {
+                        "hierarchicalDocumentSymbolSupport": true
                     },
                 },
             },
