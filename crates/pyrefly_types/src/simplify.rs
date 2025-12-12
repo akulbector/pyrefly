@@ -23,6 +23,46 @@ fn flatten_and_dedup(xs: Vec<Type>) -> Vec<Type> {
             match x {
                 Type::Union(box Union { members, .. }) => flatten(members, res),
                 Type::Never(_) => {}
+                // Handle unpacked types in unions (for Union[*Ts] support)
+                // Note: tuple[...] in a type context becomes Type::Type(Type::Tuple(...))
+                Type::Unpack(box Type::Type(box Type::Tuple(Tuple::Concrete(elts))))
+                | Type::Unpack(box Type::Tuple(Tuple::Concrete(elts))) => {
+                    // Expand concrete tuple: Union[*tuple[int, str]] => Union[int, str]
+                    res.extend(elts);
+                }
+                Type::Unpack(
+                    box Type::Type(box Type::Tuple(Tuple::Unpacked(box (prefix, middle, suffix))))
+                ) | Type::Unpack(box Type::Tuple(Tuple::Unpacked(box (prefix, middle, suffix)))) => {
+                    // Unpacked tuple with prefix/suffix in union
+                    // Expand all parts into the union
+                    res.extend(prefix);
+                    res.push(Type::Unpack(Box::new(middle)));
+                    res.extend(suffix);
+                }
+                Type::Unpack(box Type::Type(box Type::Tuple(Tuple::Unbounded(elem)))) => {
+                    // Unbounded tuple unpacked in union: Union[*tuple[int, ...]]
+                    // Can't expand this to finite members
+                    // Add the element type as a conservative approximation
+                    res.push(*elem);
+                }
+                Type::Unpack(box Type::Tuple(Tuple::Unbounded(elem))) => {
+                    // Also handle direct tuple
+                    res.push(*elem);
+                }
+                Type::Unpack(box Type::Quantified(q)) if q.is_type_var_tuple() => {
+                    // TypeVarTuple unpacked in union: Union[*Ts]
+                    // Keep the Unpack wrapper so that after substitution (when Ts becomes tuple[A, B]),
+                    // we have Unpack(tuple[A, B]) which can be flattened to [A, B]
+                    res.push(Type::Unpack(Box::new(Type::Quantified(q))));
+                }
+                Type::Unpack(box Type::Type(inner)) => {
+                    // Unpack of a type-wrapped value - unwrap both layers
+                    res.push(Type::Unpack(inner));
+                }
+                Type::Unpack(box ty) => {
+                    // Other unpacked types - unwrap the Unpack layer
+                    res.push(ty);
+                }
                 _ => res.push(x),
             }
         }
@@ -65,24 +105,49 @@ fn simplify_intersections(xs: &mut [Type]) {
     }
 }
 
+/// Check if any type in the list needs flattening (contains Unpack or Union)
+fn needs_flattening(xs: &[Type]) -> bool {
+    xs.iter().any(|x| matches!(x, Type::Unpack(_) | Type::Union(_)))
+}
+
 fn unions_internal(
     xs: Vec<Type>,
     stdlib: Option<&Stdlib>,
     enum_members: Option<&dyn Fn(&Class) -> Option<usize>>,
 ) -> Type {
-    try_collapse(xs).unwrap_or_else(|xs| {
-        let mut res = flatten_and_dedup(xs);
-        if let Some(stdlib) = stdlib {
-            collapse_literals(&mut res, stdlib, enum_members.unwrap_or(&|_| None));
+    // If there are unpacked types, we need to flatten even for single-element unions
+    // e.g., Union[*tuple[int, str]] should become int | str, not *tuple[int, str]
+    if xs.len() == 1 && !needs_flattening(&xs) {
+        return xs.into_iter().next().unwrap();
+    }
+    if xs.is_empty() {
+        return Type::never();
+    }
+
+    let mut res = flatten_and_dedup(xs);
+    if let Some(stdlib) = stdlib {
+        collapse_literals(&mut res, stdlib, enum_members.unwrap_or(&|_| None));
+    }
+    collapse_tuple_unions_with_empty(&mut res);
+    // `res` is collapsible again if `flatten_and_dedup` drops `xs` to 0 or 1 elements
+    // However, don't collapse if the single element is an Unpack of a TypeVarTuple,
+    // because Union[*Ts] should stay as a Union, not become a bare *Ts
+    if res.len() == 1 {
+        if let Type::Unpack(box Type::Quantified(q)) = &res[0] {
+            if q.is_type_var_tuple() {
+                // Keep as a Union to avoid bare Unpack in contexts where it's not allowed
+                return Type::Union(Box::new(Union {
+                    members: res,
+                    display_name: None,
+                }));
+            }
         }
-        collapse_tuple_unions_with_empty(&mut res);
-        // `res` is collapsible again if `flatten_and_dedup` drops `xs` to 0 or 1 elements
-        try_collapse(res).unwrap_or_else(|members| {
-            Type::Union(Box::new(Union {
-                members,
-                display_name: None,
-            }))
-        })
+    }
+    try_collapse(res).unwrap_or_else(|members| {
+        Type::Union(Box::new(Union {
+            members,
+            display_name: None,
+        }))
     })
 }
 
@@ -341,6 +406,35 @@ pub fn simplify_tuples(tuple: Tuple) -> Tuple {
             ),
         },
         _ => tuple,
+    }
+}
+
+// After a TypeVarTuple gets substituted in a union, simplify by expanding unpacked tuples
+pub fn simplify_unions(union: Union) -> Type {
+    let mut needs_simplification = false;
+    for member in &union.members {
+        if matches!(member, Type::Unpack(_)) {
+            needs_simplification = true;
+            break;
+        }
+    }
+    
+    if !needs_simplification {
+        return Type::Union(Box::new(union));
+    }
+    
+    // Re-flatten and deduplicate if we have unpacked types
+    let Union { members, display_name } = union;
+    let simplified = flatten_and_dedup(members);
+    
+    // Return the simplified result
+    match simplified.len() {
+        0 => Type::never(),
+        1 => simplified.into_iter().next().unwrap(),
+        _ => Type::Union(Box::new(Union {
+            members: simplified,
+            display_name,
+        })),
     }
 }
 

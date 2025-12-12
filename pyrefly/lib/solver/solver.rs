@@ -45,6 +45,7 @@ use crate::types::callable::Function;
 use crate::types::callable::Params;
 use crate::types::module::ModuleType;
 use crate::types::simplify::simplify_tuples;
+use crate::types::simplify::simplify_unions;
 use crate::types::simplify::unions;
 use crate::types::simplify::unions_with_literals;
 use crate::types::types::TParams;
@@ -477,6 +478,11 @@ impl Solver {
             }
             if let Type::Tuple(tuple) = x {
                 *x = Type::Tuple(simplify_tuples(mem::take(tuple)));
+            }
+            // After a TypeVarTuple gets substituted in a union, simplify by expanding unpacked tuples
+            if let Type::Union(union) = x {
+                let union_copy = union.as_ref().clone();
+                *x = simplify_unions(union_copy);
             }
             // When a param spec is resolved, collapse any Concatenate and Callable types that use it
             if let Type::Concatenate(ts, box Type::ParamSpecValue(paramlist)) = x {
@@ -917,7 +923,10 @@ impl Solver {
         if branches.is_empty() {
             return Type::never();
         }
-        if branches.len() == 1 {
+        // Don't short-circuit if there are Unpack types that need flattening
+        // e.g., Union[*tuple[int, str]] should become int | str
+        let has_unpack = branches.iter().any(|t| matches!(t, Type::Unpack(_)));
+        if branches.len() == 1 && !has_unpack {
             return branches.pop().unwrap();
         }
 

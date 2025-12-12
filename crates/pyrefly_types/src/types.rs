@@ -51,6 +51,7 @@ use crate::module::ModuleType;
 use crate::param_spec::ParamSpec;
 use crate::quantified::Quantified;
 use crate::quantified::QuantifiedKind;
+use crate::simplify::simplify_unions;
 use crate::simplify::unions;
 use crate::special_form::SpecialForm;
 use crate::stdlib::Stdlib;
@@ -1044,6 +1045,23 @@ impl Type {
     pub fn subst_mut(&mut self, mp: &SmallMap<&Quantified, &Type>) {
         if !mp.is_empty() {
             self.subst_mut_fn(&mut |x| mp.get(x).map(|t| (*t).clone()));
+            // After substitution, simplify unions that may contain unpacked tuples
+            // e.g., Union[*Ts] where Ts is substituted with tuple[A, B] should become A | B
+            self.transform_mut(&mut |x| {
+                if let Type::Union(union) = x {
+                    if union.members.iter().any(|m| matches!(m, Type::Unpack(_))) {
+                        let union_copy = union.as_ref().clone();
+                        *x = simplify_unions(union_copy);
+                    }
+                }
+                // Also handle the case where Union[*Ts] collapsed to just *Ts (single element)
+                // After substitution, *Ts becomes *tuple[A, B] which should become A | B
+                if let Type::Unpack(box Type::Tuple(Tuple::Concrete(elts))) = x {
+                    // Expand unpacked concrete tuple to union
+                    let elts = std::mem::take(elts);
+                    *x = unions(elts);
+                }
+            });
         }
     }
 

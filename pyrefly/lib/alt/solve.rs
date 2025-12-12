@@ -3814,6 +3814,9 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
             Type::QuantifiedValue(q) => Some(q.to_type()),
             Type::ArgsValue(q) => Some(Type::Args(q)),
             Type::KwargsValue(q) => Some(Type::Kwargs(q)),
+            // Unpack is allowed in type argument positions (e.g., Union[*Ts])
+            // and will be flattened during union/tuple construction
+            Type::Unpack(inner) => Some(Type::Unpack(inner)),
             _ => None,
         }
     }

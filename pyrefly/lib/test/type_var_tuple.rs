@@ -310,3 +310,156 @@ def test[T, *Ts](t1: tuple[T, *Ts], t2: tuple[*Ts, T]):
     t2 = (*t1[1:], t1[0])
 "#,
 );
+
+testcase!(
+    test_union_unpack_concrete_simple,
+    r#"
+from typing import Union
+
+# Simple case: unpacking a concrete tuple
+def accepts_int_or_str(x: Union[*tuple[int, str]]) -> None:
+    pass
+
+accepts_int_or_str(1)      # OK
+accepts_int_or_str("hi")   # OK
+accepts_int_or_str(1.0)    # E: Argument `float` is not assignable to parameter `x` with type `int | str`
+"#,
+);
+
+testcase!(
+    test_union_unpack_type_var_tuple_basic,
+    r#"
+from typing import TypeVarTuple, Generic, Union
+
+Ts = TypeVarTuple('Ts')
+
+class Accepts(Generic[*Ts]):
+    def foo(self, x: Union[*Ts]) -> None: ...
+
+class A: ...
+class B: ...
+class C: ...
+
+# Test basic usage with concrete type arguments
+test: Accepts[A, B] = Accepts()
+test.foo(A())  # OK
+test.foo(B())  # OK
+test.foo(C())  # E: Argument `C` is not assignable to parameter `x` with type `A | B`
+"#,
+);
+
+testcase!(
+    test_union_unpack_concrete_tuple,
+    r#"
+from typing import Union
+
+def bar(x: Union[*tuple[int, str, bool]]) -> None: ...
+
+bar(1)      # OK
+bar("hi")   # OK
+bar(True)   # OK
+bar(1.0)    # E: Argument `float` is not assignable to parameter `x` with type `bool | int | str`
+"#,
+);
+
+testcase!(
+    test_union_unpack_mixed,
+    r#"
+from typing import Union
+
+def baz(x: Union[*tuple[int, str], float]) -> None: ...
+
+baz(1)      # OK
+baz("hi")   # OK
+baz(1.0)    # OK
+baz(True)   # OK (bool is subtype of int)
+baz([])     # E: Argument `list[@_]` is not assignable to parameter `x` with type `float | int | str`
+"#,
+);
+
+testcase!(
+    test_union_unpack_empty_tuple,
+    r#"
+from typing import Union, Never
+
+# Empty tuple unpacked in union should simplify to other members or Never
+def empty1(x: Union[*tuple[()]]) -> None: ...
+def empty2(x: Union[*tuple[()], int]) -> None: ...
+
+# These should be equivalent to Never and int respectively
+x1: Never = empty1  # E: `(x: Never) -> None` is not assignable to `Never`
+x2: int = empty2    # E: `(x: int) -> None` is not assignable to `int`
+"#,
+);
+
+testcase!(
+    test_union_unpack_type_var_tuple_multiple_params,
+    r#"
+from typing import TypeVarTuple, Union
+
+Ts1 = TypeVarTuple('Ts1')
+Ts2 = TypeVarTuple('Ts2')
+
+def multi1[*Ts, T](x: Union[*Ts, T]) -> None: ...
+def multi2[T, *Ts](x: Union[T, *Ts]) -> None: ...
+
+multi1[int, str, float](1)      # OK: T=float, Ts=(int, str)
+multi1[int, str, float]("hi")   # OK
+multi1[int, str, float](1.0)    # OK
+multi1[int, str, float](True)   # OK
+
+multi2[int, str, float](1)      # OK: T=int, Ts=(str, float)
+multi2[int, str, float]("hi")   # OK
+multi2[int, str, float](1.0)    # OK
+"#,
+);
+
+// TODO: Type inference from Union[*Ts] is not yet supported.
+// This test is temporarily disabled until inference is implemented.
+// testcase!(
+//     test_union_unpack_type_var_tuple_inference,
+//     r#"
+// from typing import TypeVarTuple, Union, assert_type
+// 
+// def accept[*Ts](x: Union[*Ts]) -> tuple[*Ts]: ...
+// 
+// result1 = accept(1)
+// assert_type(result1, tuple[int])
+// 
+// result2 = accept("hi")
+// assert_type(result2, tuple[str])
+// "#,
+// );
+
+testcase!(
+    test_union_unpack_nested_tuple,
+    r#"
+from typing import Union
+
+# Nested concrete tuple
+def nested(x: Union[*tuple[int, *tuple[str, bool]]]) -> None: ...
+
+nested(1)      # OK
+nested("hi")   # OK
+nested(True)   # OK
+nested(1.0)    # E: Argument `float` is not assignable to parameter `x` with type `bool | int | str`
+"#,
+);
+
+testcase!(
+    test_union_unpack_return_type,
+    r#"
+from typing import TypeVarTuple, Generic, Union
+
+Ts = TypeVarTuple('Ts')
+
+class Container(Generic[*Ts]):
+    def get(self) -> Union[*Ts]: ...
+
+c: Container[int, str] = Container()
+x = c.get()
+# x should be int | str
+y: int | str = x  # OK
+z: int = x  # E: `int | str` is not assignable to `int`
+"#,
+);
