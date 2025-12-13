@@ -334,3 +334,18 @@ x1: Container[str] = s
 x2: Container[str] = "foo"
     "#,
 );
+
+testcase!(
+    test_generic_identity_preserves_tuple_literals,
+    r#"
+from typing import assert_type, Literal
+
+def takes_generic[T](x: T) -> T:
+    return x
+
+val = takes_generic((1, "b", False))
+assert_type(val, tuple[Literal[1], Literal["b"], Literal[False]])
+
+"#,
+);
+

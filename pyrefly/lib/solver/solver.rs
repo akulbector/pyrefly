@@ -48,6 +48,7 @@ use crate::types::simplify::simplify_tuples;
 use crate::types::simplify::simplify_unions;
 use crate::types::simplify::unions;
 use crate::types::simplify::unions_with_literals;
+use crate::types::tuple::Tuple;
 use crate::types::types::TParams;
 use crate::types::types::Type;
 use crate::types::types::Var;
@@ -1520,7 +1521,15 @@ impl<'a, Ans: LookupAnswer> Subset<'a, Ans> {
                         self.is_subset_eq(t1, &t2)
                     }
                     Variable::Quantified(q) | Variable::PartialQuantified(q) => {
-                        let t1_p = t1.clone().promote_literals(self.type_order.stdlib());
+                        let preserve_literal_tuple = matches!(
+                            t1,
+                            Type::Tuple(Tuple::Concrete(elts)) if elts.iter().all(|elt| matches!(elt, Type::Literal(_)))
+                        );
+                        let t1_p = if preserve_literal_tuple {
+                            t1.clone()
+                        } else {
+                            t1.clone().promote_literals(self.type_order.stdlib())
+                        };
                         let name = q.name.clone();
                         let bound = q.restriction().as_type(self.type_order.stdlib());
                         drop(v2_ref);
