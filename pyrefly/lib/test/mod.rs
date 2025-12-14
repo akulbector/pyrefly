@@ -63,6 +63,7 @@ mod sys_info;
 mod tsp;
 mod tuple;
 mod type_alias;
+mod type_of;
 mod type_var_tuple;
 mod typed_dict;
 mod typing_self;

@@ -469,6 +469,32 @@ impl<'a, Ans: LookupAnswer> AnswersSolver<'a, Ans> {
                     arguments.len()
                 ),
             ),
+            SpecialForm::TypeOf if arguments.len() == 1 => {
+                // typeof[var] extracts the inferred type of var and uses it as a type annotation
+                // MVP: Only support simple variable names
+                let var_expr = &arguments[0];
+                if !matches!(var_expr, Expr::Name(_)) {
+                    return self.error(
+                        errors,
+                        var_expr.range(),
+                        ErrorInfo::Kind(ErrorKind::BadSpecialization),
+                        "`typeof` requires a simple variable name".to_owned(),
+                    );
+                }
+                // Infer the type of the expression
+                let inferred_type = self.expr_infer(var_expr, errors);
+                // Return it as a type form
+                Type::type_form(inferred_type)
+            }
+            SpecialForm::TypeOf => self.error(
+                errors,
+                range,
+                ErrorInfo::Kind(ErrorKind::BadSpecialization),
+                format!(
+                    "`typeof` requires exactly one argument but got {}",
+                    arguments.len()
+                ),
+            ),
             SpecialForm::Unpack if arguments.len() == 1 => Type::type_form(Type::Unpack(Box::new(
                 self.expr_untype(&arguments[0], TypeFormContext::TypeArgument, errors),
             ))),

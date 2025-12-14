@@ -49,6 +49,8 @@ pub enum SpecialForm {
     TypeGuard,
     TypeIs,
     TypedDict,
+    #[display("typeof")]
+    TypeOf,
     Union,
     Unpack,
 }
