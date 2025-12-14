@@ -106,12 +106,12 @@ def test(a1: A[int], a2: A[int, str], b: B[int, str, int]):
 testcase!(
     test_type_var_tuple_solve,
     r#"
-from typing import assert_type
+from typing import assert_type, Literal
 class A[*Ts]:
     def x(self) -> tuple[*Ts]: ...
 def test[*Ts](x: tuple[*Ts]) -> tuple[*Ts]:
     return x
-assert_type(test((1, 2, 3)), tuple[int, int, int])
+assert_type(test((1, 2, 3)), tuple[Literal[1], Literal[2], Literal[3]])
 "#,
 );
 
@@ -199,13 +199,13 @@ assert_type(test(fun, 1), tuple[int])
 testcase!(
     test_type_var_tuple_resolves_to_empty,
     r#"
-from typing import Callable, assert_type
+from typing import Callable, assert_type, Literal
 
 def test[*Ts](*args: *Ts) -> tuple[*Ts]:
     return (*args,)
 
 assert_type(test(), tuple[()])
-assert_type(test(1), tuple[int])
+assert_type(test(1), tuple[Literal[1]])
 "#,
 );
 

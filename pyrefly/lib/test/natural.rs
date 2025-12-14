@@ -126,10 +126,10 @@ assert_type(C(42), C[int])
 testcase!(
     test_generic_tuple,
     r#"
-from typing import assert_type
+from typing import assert_type, Literal
 
 def f[T](x: T) -> list[T]: ...
 
-assert_type(f((1,)), list[tuple[int]])
+assert_type(f((1,)), list[tuple[Literal[1]]])
 "#,
 );
